@@ -29,8 +29,8 @@ class LicenseClient(private val plugin: JavaPlugin) {
         if (!file.exists()) {
             plugin.dataFolder.mkdirs()
             file.writeText("""{"key": "YOUR-LICENSE-KEY-HERE"}""")
-            plugin.logger.severe("[MurAPI] license.json not found — created template at ${file.absolutePath}")
-            plugin.logger.severe("[MurAPI] Insert your license key and restart the server.")
+            plugin.logger.severe("[LicenseAPI] license.json not found — created template at ${file.absolutePath}")
+            plugin.logger.severe("[LicenseAPI] Insert your license key and restart the server.")
             return null
         }
 
@@ -39,13 +39,13 @@ class LicenseClient(private val plugin: JavaPlugin) {
             val key  = json.get("key").asString
 
             if (key == "YOUR-LICENSE-KEY-HERE" || key.isBlank()) {
-                plugin.logger.severe("[MurAPI] Please set your license key in license.json!")
+                plugin.logger.severe("[LicenseAPI] Please set your license key in license.json!")
                 return null
             }
 
             key
         }.getOrElse {
-            plugin.logger.severe("[MurAPI] Failed to read license.json: ${it.message}")
+            plugin.logger.severe("[LicenseAPI] Failed to read license.json: ${it.message}")
             null
         }
     }
