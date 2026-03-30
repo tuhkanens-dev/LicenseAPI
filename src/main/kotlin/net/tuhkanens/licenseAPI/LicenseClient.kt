@@ -6,10 +6,9 @@ import java.io.File
 class LicenseClient(private val plugin: LicensePlugin) {
 
     fun registerLicense(
-        identifier: String,
-        licenseFile: File = File("license-api/$identifier/license.json")
+        identifier: String
     ): Boolean {
-        val licenseKey = readLicenseKey(licenseFile) ?: return false
+        val licenseKey = readLicenseKey(File("license-api/$identifier/license.json")) ?: return false
 
         return LicenseManager.init(
             plugin     = plugin,
