@@ -1,17 +1,15 @@
 package net.tuhkanens.licenseAPI
 
-import org.bukkit.plugin.java.JavaPlugin
-
 object LicenseAPI {
 
     private var client: LicenseClient? = null
 
-    fun setAPI(plugin: JavaPlugin) {
+    fun setAPI(plugin: LicensePlugin) {
         this.client = LicenseClient(plugin)
     }
 
     fun getAPI(): LicenseClient {
-        return this.client ?: error("LicenseAPI not registered. Call setAPI(plugin) first.")
+        return this.client ?: error("LicenseAPI not registered. Call setAPI() first.")
     }
 
     fun terminate() {

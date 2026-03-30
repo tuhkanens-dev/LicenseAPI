@@ -1,10 +1,9 @@
 package net.tuhkanens.licenseAPI
 
 import com.google.gson.JsonParser
-import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
 
-class LicenseClient(private val plugin: JavaPlugin) {
+class LicenseClient(private val plugin: LicensePlugin) {
 
     fun registerLicense(identifier: String): Boolean {
         val licenseKey = readLicenseKey() ?: return false
@@ -13,24 +12,20 @@ class LicenseClient(private val plugin: JavaPlugin) {
             plugin     = plugin,
             licenseKey = licenseKey,
             identifier = identifier,
-            onInvalid  = {
-                plugin.server.scheduler.runTask(plugin, Runnable {
-                    plugin.server.pluginManager.disablePlugin(plugin)
-                })
-            }
+            onInvalid  = { plugin.disable() }
         )
     }
 
     fun checkLicense(): Boolean = LicenseManager.isValid()
 
     private fun readLicenseKey(): String? {
-        val file = File(plugin.dataFolder, "license.json")
+        val file = File("plugins/LicenseAPI/license.json")
 
         if (!file.exists()) {
-            plugin.dataFolder.mkdirs()
+            file.parentFile.mkdirs()
             file.writeText("""{"key": "YOUR-LICENSE-KEY-HERE"}""")
-            plugin.logger.severe("[LicenseAPI] license.json not found — created template at ${file.absolutePath}")
-            plugin.logger.severe("[LicenseAPI] Insert your license key and restart the server.")
+            plugin.logger.severe("[MurAPI] license.json not found — created template at ${file.absolutePath}")
+            plugin.logger.severe("[MurAPI] Insert your license key and restart the server.")
             return null
         }
 
@@ -39,13 +34,13 @@ class LicenseClient(private val plugin: JavaPlugin) {
             val key  = json.get("key").asString
 
             if (key == "YOUR-LICENSE-KEY-HERE" || key.isBlank()) {
-                plugin.logger.severe("[LicenseAPI] Please set your license key in license.json!")
+                plugin.logger.severe("[MurAPI] Please set your license key in license.json!")
                 return null
             }
 
             key
         }.getOrElse {
-            plugin.logger.severe("[LicenseAPI] Failed to read license.json: ${it.message}")
+            plugin.logger.severe("[MurAPI] Failed to read license.json: ${it.message}")
             null
         }
     }

@@ -2,7 +2,6 @@ package net.tuhkanens.licenseAPI
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import org.bukkit.plugin.java.JavaPlugin
 import java.net.HttpURLConnection
 import java.net.URI
 import java.security.KeyFactory
@@ -31,16 +30,16 @@ object LicenseManager {
     private lateinit var licenseKey: String
     private lateinit var identifier: String
     private lateinit var deviceFp: String
-    private lateinit var plugin: JavaPlugin
+    private lateinit var plugin: LicensePlugin
 
     private val valid = AtomicBoolean(false)
     private val scheduler = Executors.newSingleThreadScheduledExecutor { r ->
-        Thread(r, "LicenseAPI-license").also { it.isDaemon = true }
+        Thread(r, "murapi-license").also { it.isDaemon = true }
     }
 
     private var onInvalid: () -> Unit = {}
 
-    fun init(plugin: JavaPlugin, licenseKey: String, identifier: String, onInvalid: () -> Unit): Boolean {
+    fun init(plugin: LicensePlugin, licenseKey: String, identifier: String, onInvalid: () -> Unit): Boolean {
         this.plugin     = plugin
         this.licenseKey = licenseKey
         this.identifier = identifier
@@ -48,7 +47,7 @@ object LicenseManager {
         this.deviceFp   = DeviceFingerprint.get()
 
         if (licenseKey == "YOUR-LICENSE-KEY-HERE" || licenseKey.isBlank()) {
-            plugin.logger.severe("[LicenseAPI] Please set your license key!")
+            plugin.logger.severe("[MurAPI] Please set your license key!")
             return false
         }
 
@@ -57,9 +56,9 @@ object LicenseManager {
 
         if (result) {
             schedulePeriodicCheck()
-            plugin.logger.info("[LicenseAPI] License valid ✓ ($identifier)")
+            plugin.logger.info("[MurAPI] License valid ✓ ($identifier)")
         } else {
-            plugin.logger.severe("[LicenseAPI] License invalid or expired! ($identifier)")
+            plugin.logger.severe("[MurAPI] License invalid or expired! ($identifier)")
         }
 
         return result
@@ -71,7 +70,7 @@ object LicenseManager {
         scheduler.scheduleAtFixedRate({
             val result = check()
             if (!result && valid.getAndSet(false)) {
-                plugin.logger.severe("[LicenseAPI] License check failed! ($identifier)")
+                plugin.logger.severe("[MurAPI] License check failed! ($identifier)")
                 onInvalid()
             }
         }, 1, 1, TimeUnit.HOURS)
@@ -114,12 +113,12 @@ object LicenseManager {
             val payload = String(Base64.getDecoder().decode(tokenPayload))
 
             if (!verifyToken(payload, token)) {
-                plugin.logger.severe("[LicenseAPI] Token signature invalid — possible fake server!")
+                plugin.logger.severe("[MurAPI] Token signature invalid — possible fake server!")
                 return false
             }
 
             if (System.currentTimeMillis() / 1000 > tokenExp) {
-                plugin.logger.severe("[LicenseAPI] Token expired!")
+                plugin.logger.severe("[MurAPI] Token expired!")
                 return false
             }
 
@@ -130,15 +129,15 @@ object LicenseManager {
 
             true
         }.getOrElse {
-            plugin.logger.warning("[LicenseAPI] License check error: ${it.message}")
+            plugin.logger.warning("[MurAPI] License check error: ${it.message}")
             valid.get()
         }
     }
 
     private fun verifyToken(payload: String, token: String): Boolean {
         return runCatching {
-            val keyBytes   = Base64.getDecoder().decode(PUBLIC_KEY)
-            val publicKey  = KeyFactory.getInstance("RSA")
+            val keyBytes  = Base64.getDecoder().decode(PUBLIC_KEY)
+            val publicKey = KeyFactory.getInstance("RSA")
                 .generatePublic(X509EncodedKeySpec(keyBytes))
 
             val sig = Signature.getInstance("SHA256withRSA")
@@ -146,7 +145,7 @@ object LicenseManager {
             sig.update(payload.toByteArray())
             sig.verify(Base64.getDecoder().decode(token))
         }.getOrElse {
-            plugin.logger.severe("[LicenseAPI] Token verification error: ${it.message}")
+            plugin.logger.severe("[MurAPI] Token verification error: ${it.message}")
             false
         }
     }
@@ -161,7 +160,7 @@ object LicenseManager {
         val conn = URI(url).toURL().openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
-        conn.setRequestProperty("User-Agent", "LicenseAPI/1.0")
+        conn.setRequestProperty("User-Agent", "MurAPI/1.0")
         conn.connectTimeout = 10_000
         conn.readTimeout    = 10_000
         conn.doOutput       = true
