@@ -24,7 +24,7 @@ class LicenseClient(private val plugin: LicensePlugin) {
         if (!file.exists()) {
             file.parentFile.mkdirs()
             file.writeText("""{"key": "YOUR-LICENSE-KEY-HERE"}""")
-            plugin.logger.severe("[LicenseAPI] license.json not found — created template at ${file.absolutePath}")
+            plugin.logger.severe("[LicenseAPI] license.json not found! created template at ${file.absolutePath}")
             plugin.logger.severe("[LicenseAPI] Insert your license key and restart the server.")
             return null
         }

@@ -56,7 +56,7 @@ object LicenseManager {
 
         if (result) {
             schedulePeriodicCheck()
-            plugin.logger.info("[LicenseAPI] License valid ✓ ($identifier)")
+            plugin.logger.info("[LicenseAPI] License valid ($identifier)")
         } else {
             plugin.logger.severe("[LicenseAPI] License invalid or expired! ($identifier)")
         }
