@@ -8,9 +8,8 @@ object LicenseAPI {
         this.client = LicenseClient(plugin)
     }
 
-    fun getAPI(): LicenseClient {
-        return this.client ?: error("LicenseAPI not registered. Call setAPI() first.")
-    }
+    fun getAPI(): LicenseClient =
+        client ?: error("LicenseAPI not registered. Call setAPI() first.")
 
     fun terminate() {
         LicenseManager.shutdown()

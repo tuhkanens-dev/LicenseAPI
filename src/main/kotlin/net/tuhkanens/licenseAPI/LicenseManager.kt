@@ -2,6 +2,7 @@ package net.tuhkanens.licenseAPI
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import org.apache.logging.log4j.LogManager
 import java.net.HttpURLConnection
 import java.net.URI
 import java.security.KeyFactory
@@ -16,6 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 object LicenseManager {
 
     private const val API = "https://yp-myp.ru/api/license"
+    private val log = LogManager.getLogger(LicenseManager::class.java)
 
     private val PUBLIC_KEY = """
         MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApGZnRTrRCkVRbhO+M/8H
@@ -30,24 +32,21 @@ object LicenseManager {
     private lateinit var licenseKey: String
     private lateinit var identifier: String
     private lateinit var deviceFp: String
-    private lateinit var plugin: LicensePlugin
+    private lateinit var onInvalidCallback: () -> Unit
 
     private val valid = AtomicBoolean(false)
     private val scheduler = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "LicenseAPI-license").also { it.isDaemon = true }
     }
 
-    private var onInvalid: () -> Unit = {}
-
-    fun init(plugin: LicensePlugin, licenseKey: String, identifier: String, onInvalid: () -> Unit): Boolean {
-        this.plugin     = plugin
-        this.licenseKey = licenseKey
-        this.identifier = identifier
-        this.onInvalid  = onInvalid
-        this.deviceFp   = DeviceFingerprint.get()
+    fun init(licenseKey: String, identifier: String, onInvalid: () -> Unit): Boolean {
+        this.licenseKey        = licenseKey
+        this.identifier        = identifier
+        this.onInvalidCallback = onInvalid
+        this.deviceFp          = DeviceFingerprint.get()
 
         if (licenseKey == "YOUR-LICENSE-KEY-HERE" || licenseKey.isBlank()) {
-            plugin.logger.severe("[LicenseAPI] Please set your license key!")
+            log.error("[LicenseAPI] Please set your license key!")
             return false
         }
 
@@ -56,9 +55,9 @@ object LicenseManager {
 
         if (result) {
             schedulePeriodicCheck()
-            plugin.logger.info("[LicenseAPI] License valid ($identifier)")
+            log.info("[LicenseAPI] License valid ($identifier)")
         } else {
-            plugin.logger.severe("[LicenseAPI] License invalid or expired! ($identifier)")
+            log.error("[LicenseAPI] License invalid or expired! ($identifier)")
         }
 
         return result
@@ -66,19 +65,19 @@ object LicenseManager {
 
     fun isValid() = valid.get()
 
+    fun shutdown() {
+        scheduler.shutdownNow()
+        valid.set(false)
+    }
+
     private fun schedulePeriodicCheck() {
         scheduler.scheduleAtFixedRate({
             val result = check()
             if (!result && valid.getAndSet(false)) {
-                plugin.logger.severe("[LicenseAPI] License check failed! ($identifier)")
-                onInvalid()
+                log.error("[LicenseAPI] License check failed! ($identifier)")
+                onInvalidCallback()
             }
         }, 1, 1, TimeUnit.HOURS)
-    }
-
-    fun shutdown() {
-        scheduler.shutdownNow()
-        valid.set(false)
     }
 
     private fun check(): Boolean {
@@ -113,12 +112,12 @@ object LicenseManager {
             val payload = String(Base64.getDecoder().decode(tokenPayload))
 
             if (!verifyToken(payload, token)) {
-                plugin.logger.severe("[LicenseAPI] Token signature invalid — possible fake server!")
+                log.error("[LicenseAPI] Token signature invalid — possible fake server!")
                 return false
             }
 
             if (System.currentTimeMillis() / 1000 > tokenExp) {
-                plugin.logger.severe("[LicenseAPI] Token expired!")
+                log.error("[LicenseAPI] Token expired!")
                 return false
             }
 
@@ -129,7 +128,7 @@ object LicenseManager {
 
             true
         }.getOrElse {
-            plugin.logger.warning("[LicenseAPI] License check error: ${it.message}")
+            log.warn("[LicenseAPI] License check error: ${it.message}")
             valid.get()
         }
     }
@@ -145,16 +144,15 @@ object LicenseManager {
             sig.update(payload.toByteArray())
             sig.verify(Base64.getDecoder().decode(token))
         }.getOrElse {
-            plugin.logger.severe("[LicenseAPI] Token verification error: ${it.message}")
+            log.error("[LicenseAPI] Token verification error: ${it.message}")
             false
         }
     }
 
-    private fun sha256(input: String): String {
-        return MessageDigest.getInstance("SHA-256")
+    private fun sha256(input: String): String =
+        MessageDigest.getInstance("SHA-256")
             .digest(input.toByteArray())
             .joinToString("") { "%02x".format(it) }
-    }
 
     private fun post(url: String, body: String): String {
         val conn = URI(url).toURL().openConnection() as HttpURLConnection

@@ -1,17 +1,17 @@
 package net.tuhkanens.licenseAPI
 
 import com.google.gson.JsonParser
+import org.apache.logging.log4j.LogManager
 import java.io.File
 
 class LicenseClient(private val plugin: LicensePlugin) {
 
-    fun registerLicense(
-        identifier: String
-    ): Boolean {
+    private val log = LogManager.getLogger(LicenseClient::class.java)
+
+    fun registerLicense(identifier: String): Boolean {
         val licenseKey = readLicenseKey(File("license-api/$identifier/license.json")) ?: return false
 
         return LicenseManager.init(
-            plugin     = plugin,
             licenseKey = licenseKey,
             identifier = identifier,
             onInvalid  = { plugin.disable() }
@@ -24,8 +24,8 @@ class LicenseClient(private val plugin: LicensePlugin) {
         if (!file.exists()) {
             file.parentFile.mkdirs()
             file.writeText("""{"key": "YOUR-LICENSE-KEY-HERE"}""")
-            plugin.logger.severe("[LicenseAPI] license.json not found! created template at ${file.absolutePath}")
-            plugin.logger.severe("[LicenseAPI] Insert your license key and restart the server.")
+            log.error("[LicenseAPI] license.json not found! Created template at ${file.absolutePath}")
+            log.error("[LicenseAPI] Insert your license key and restart the server.")
             return null
         }
 
@@ -34,13 +34,13 @@ class LicenseClient(private val plugin: LicensePlugin) {
             val key  = json.get("key").asString
 
             if (key == "YOUR-LICENSE-KEY-HERE" || key.isBlank()) {
-                plugin.logger.severe("[LicenseAPI] Please set your license key in ${file.absolutePath}!")
+                log.error("[LicenseAPI] Please set your license key in ${file.absolutePath}!")
                 return null
             }
 
             key
         }.getOrElse {
-            plugin.logger.severe("[LicenseAPI] Failed to read ${file.absolutePath}: ${it.message}")
+            log.error("[LicenseAPI] Failed to read ${file.absolutePath}: ${it.message}")
             null
         }
     }
