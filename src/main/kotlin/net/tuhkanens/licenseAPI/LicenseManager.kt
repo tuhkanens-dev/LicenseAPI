@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object LicenseManager {
 
-    private const val API = "https://store.yp-myp.ru/api/license"
+    private const val API = "https://yp-myp.ru/api/license"
 
     private val PUBLIC_KEY = """
         MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApGZnRTrRCkVRbhO+M/8H
