@@ -2,12 +2,15 @@
 <Configuration status="WARN" shutdownHook="disable">
     <Appenders>
         <Console name="Console" target="SYSTEM_OUT">
-            <PatternLayout pattern="[%d{HH:mm:ss} %level]: %msg%n"/>
+            <PatternLayout disableAnsi="false" pattern="%style{[%d{HH:mm:ss}]}{dim} %highlight{%-5level}{FATAL=red bright, ERROR=red, WARN=yellow, INFO=cyan, DEBUG=green, TRACE=white} %msg%n"/>
         </Console>
+        <File name="File" fileName="proxo.log">
+            <PatternLayout pattern="[%d{yyyy-MM-dd HH:mm:ss} %-5level] %msg%n"/>
+        </File>
     </Appenders>
 
     <Loggers>
-        <Logger name="license-api" level="INFO" additivity="false">
+        <Logger name="proxo" level="INFO" additivity="false">
             <AppenderRef ref="Console"/>
             <AppenderRef ref="File"/>
         </Logger>
