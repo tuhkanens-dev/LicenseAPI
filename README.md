@@ -1,4 +1,3 @@
 JavaPlugin API
-```
-
+```Kotlin
 ```
