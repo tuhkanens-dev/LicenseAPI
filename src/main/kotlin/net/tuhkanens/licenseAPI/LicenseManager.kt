@@ -13,10 +13,12 @@ import java.util.Base64
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 object LicenseManager {
 
     private const val API = "https://yp-myp.ru/api/license"
+    private const val GRACE_MS = 24 * 3_600_000L
     private val log = LogManager.getLogger(LicenseManager::class.java)
 
     private val PUBLIC_KEY = """
@@ -32,35 +34,52 @@ object LicenseManager {
     private lateinit var licenseKey: String
     private lateinit var identifier: String
     private lateinit var deviceFp: String
-    private lateinit var onInvalidCallback: () -> Unit
+    private lateinit var plugin: LicensePlugin
 
-    private val valid = AtomicBoolean(false)
+    private val valid            = AtomicBoolean(false)
+    private val unreachableSince = AtomicLong(0L)
+
     private val scheduler = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "LicenseAPI-license").also { it.isDaemon = true }
     }
 
-    fun init(licenseKey: String, identifier: String, onInvalid: () -> Unit): Boolean {
-        this.licenseKey        = licenseKey
-        this.identifier        = identifier
-        this.onInvalidCallback = onInvalid
-        this.deviceFp          = DeviceFingerprint.get()
+    fun init(licenseKey: String, identifier: String, plugin: LicensePlugin): Boolean {
+        this.licenseKey = licenseKey
+        this.identifier = identifier
+        this.plugin     = plugin
+        this.deviceFp   = DeviceFingerprint.get()
 
         if (licenseKey == "YOUR-LICENSE-KEY-HERE" || licenseKey.isBlank()) {
             log.error("[LicenseAPI] Please set your license key!")
             return false
         }
 
-        val result = check()
-        valid.set(result)
+        val status = check()
 
-        if (result) {
-            schedulePeriodicCheck()
-            log.info("[LicenseAPI] License valid ($identifier)")
-        } else {
-            log.error("[LicenseAPI] License invalid or expired! ($identifier)")
+        when (status) {
+            LicenseStatus.VALID -> {
+                valid.set(true)
+                schedulePeriodicCheck()
+                log.info("[LicenseAPI] License valid ($identifier)")
+                return true
+            }
+            LicenseStatus.SERVER_UNREACHABLE -> {
+                log.error("[LicenseAPI] License server unreachable — cannot start ($identifier)")
+                return false
+            }
+            LicenseStatus.INVALID -> {
+                log.error("[LicenseAPI] License not found or invalid ($identifier)")
+                return false
+            }
+            LicenseStatus.EXPIRED -> {
+                log.error("[LicenseAPI] License expired ($identifier)")
+                return false
+            }
+            LicenseStatus.DEVICE_MISMATCH -> {
+                log.error("[LicenseAPI] License is bound to another device ($identifier)")
+                return false
+            }
         }
-
-        return result
     }
 
     fun isValid() = valid.get()
@@ -72,15 +91,42 @@ object LicenseManager {
 
     private fun schedulePeriodicCheck() {
         scheduler.scheduleAtFixedRate({
-            val result = check()
-            if (!result && valid.getAndSet(false)) {
-                log.error("[LicenseAPI] License check failed! ($identifier)")
-                onInvalidCallback()
+            val status = check()
+            when (status) {
+                LicenseStatus.VALID -> {
+                    unreachableSince.set(0L)
+                }
+
+                LicenseStatus.SERVER_UNREACHABLE -> {
+                    val since = unreachableSince.compareAndExchange(0L, System.currentTimeMillis())
+                        .let { if (it == 0L) System.currentTimeMillis() else it }
+
+                    val elapsed  = System.currentTimeMillis() - since
+                    val hoursLeft = ((GRACE_MS - elapsed) / 3_600_000L).coerceAtLeast(0)
+
+                    if (elapsed >= GRACE_MS) {
+                        log.error("[LicenseAPI] Server unreachable for 24h — shutting down ($identifier)")
+                        valid.set(false)
+                        plugin.onLicenseInvalid()
+                    } else {
+                        log.warn("[LicenseAPI] Server unreachable, shutting down in ${hoursLeft}h ($identifier)")
+                    }
+                }
+
+                LicenseStatus.INVALID        -> invalidate("License not found or invalid")
+                LicenseStatus.EXPIRED        -> invalidate("License expired")
+                LicenseStatus.DEVICE_MISMATCH -> invalidate("License bound to another device")
             }
         }, 1, 1, TimeUnit.HOURS)
     }
 
-    private fun check(): Boolean {
+    private fun invalidate(reason: String) {
+        log.error("[LicenseAPI] $reason ($identifier)")
+        valid.set(false)
+        plugin.onLicenseInvalid()
+    }
+
+    private fun check(): LicenseStatus {
         return runCatching {
             val challengeBody = JsonObject().apply {
                 addProperty("license_key", licenseKey)
@@ -89,7 +135,7 @@ object LicenseManager {
             }
             val challengeResp = post("$API/challenge", challengeBody.toString())
             val challenge = JsonParser.parseString(challengeResp).asJsonObject
-                .get("challenge")?.asString ?: return false
+                .get("challenge")?.asString ?: return LicenseStatus.INVALID
 
             val response = sha256(challenge + licenseKey + deviceFp)
 
@@ -102,34 +148,38 @@ object LicenseManager {
             val verifyResp = post("$API/verify", verifyBody.toString())
             val json = JsonParser.parseString(verifyResp).asJsonObject
 
-            val status = json.get("status")?.asString
-            if (status != "valid") return false
+            when (json.get("status")?.asString) {
+                "invalid"        -> return LicenseStatus.INVALID
+                "expired"        -> return LicenseStatus.EXPIRED
+                "device_mismatch" -> return LicenseStatus.DEVICE_MISMATCH
+                "valid"          -> { /* продолжаем */ }
+                else             -> return LicenseStatus.INVALID
+            }
 
-            val token        = json.get("token")?.asString        ?: return false
-            val tokenPayload = json.get("token_payload")?.asString ?: return false
-            val tokenExp     = json.get("token_exp")?.asLong       ?: return false
+            val token        = json.get("token")?.asString        ?: return LicenseStatus.INVALID
+            val tokenPayload = json.get("token_payload")?.asString ?: return LicenseStatus.INVALID
+            val tokenExp     = json.get("token_exp")?.asLong       ?: return LicenseStatus.INVALID
 
             val payload = String(Base64.getDecoder().decode(tokenPayload))
 
             if (!verifyToken(payload, token)) {
                 log.error("[LicenseAPI] Token signature invalid — possible fake server!")
-                return false
+                return LicenseStatus.INVALID
             }
 
             if (System.currentTimeMillis() / 1000 > tokenExp) {
-                log.error("[LicenseAPI] Token expired!")
-                return false
+                return LicenseStatus.EXPIRED
             }
 
             val parts = payload.split(":")
-            if (parts.size < 5)         return false
-            if (parts[1] != licenseKey) return false
-            if (parts[2] != deviceFp)   return false
+            if (parts.size < 5)         return LicenseStatus.INVALID
+            if (parts[1] != licenseKey) return LicenseStatus.INVALID
+            if (parts[2] != deviceFp)   return LicenseStatus.INVALID
 
-            true
+            LicenseStatus.VALID
         }.getOrElse {
-            log.warn("[LicenseAPI] License check error: ${it.message}")
-            valid.get()
+            log.warn("[LicenseAPI] License server unreachable: ${it.message}")
+            LicenseStatus.SERVER_UNREACHABLE
         }
     }
 
@@ -138,7 +188,6 @@ object LicenseManager {
             val keyBytes  = Base64.getDecoder().decode(PUBLIC_KEY)
             val publicKey = KeyFactory.getInstance("RSA")
                 .generatePublic(X509EncodedKeySpec(keyBytes))
-
             val sig = Signature.getInstance("SHA256withRSA")
             sig.initVerify(publicKey)
             sig.update(payload.toByteArray())
@@ -166,8 +215,8 @@ object LicenseManager {
 
         return try {
             conn.inputStream.bufferedReader().readText()
-        } catch (_: Exception) {
-            conn.errorStream?.bufferedReader()?.readText() ?: "no response"
+        } catch (e: Exception) {
+            conn.errorStream?.bufferedReader()?.readText() ?: throw e
         }
     }
 }

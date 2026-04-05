@@ -14,7 +14,7 @@ class LicenseClient(private val plugin: LicensePlugin) {
         return LicenseManager.init(
             licenseKey = licenseKey,
             identifier = identifier,
-            onInvalid  = { plugin.disable() }
+            plugin     = plugin
         )
     }
 
